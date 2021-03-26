@@ -28,18 +28,18 @@ namespace NinjaTrader.NinjaScript.Strategies
 	public class OrderFlowPivots : Strategy
 	{
 		// Declaration of all the potential pivots
-		private double priorHigh 	= 0;
-		private double priorLow		= 0;
-		private double priorClose	= 0;
-		private double currentOpen 	= 0;
-		private double currentLow 	= 0;
-		private double currentHigh 	= 0;
-		private double openPrice 	= 0;
-		private double currentVAL   = 0;
-		private double currentVAH   = 0;
-		private double currentPOC   = 0;
-		private double priorVAL     = 0;
-		private double priorVAH     = 0;
+		private double priorHigh;
+		private double priorLow;
+		private double priorClose;
+		private double currentOpen;
+		private double currentLow;
+		private double currentHigh;
+		private double openPrice;
+		private double currentVAL;
+		private double currentVAH;
+		private double currentPOC;
+		private double priorVAL;
+		private double priorVAH;
 		
 		// Set up the order, traget, and stop variables
 		private Order entryOrder = null;
@@ -47,7 +47,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private Order targetOrder = null;
 		private int sumFilled = 0;
 		private int barNumberOfOrder = 0;
-		
 		private double[] allPivots;
 		
 		
@@ -57,7 +56,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 			{
 				Description									= @"Automated trading bot that uses Orderflow pivots to scalp";
 				Name										= "OrderFlowPivots";
-				Calculate									= Calculate.OnBarClose;
+				Calculate									= Calculate.OnEachTick;
 				EntriesPerDirection							= 1;
 				EntryHandling								= EntryHandling.AllEntries;
 				IsExitOnSessionCloseStrategy				= true;
@@ -73,6 +72,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				StopTargetHandling							= StopTargetHandling.PerEntryExecution;
 				BarsRequiredToTrade							= 20;
 				
+				
 				// Disable this property for performance gains in Strategy Analyzer optimizations
 				// See the Help Guide for additional information
 				IsInstantiatedOnEachOptimizationIteration	= true;
@@ -84,12 +84,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 				//Adds data series for daily charts
 				AddDataSeries("ES 06-21", BarsPeriodType.Day, 1);
 				
-				double[] allPivots = new double[] { priorHigh, priorLow, priorClose, currentVAL, currentVAL, currentOpen, currentPOC };
-				
-				
+				allPivots = new double[] { priorHigh, priorLow, priorClose, currentVAL, currentVAH, currentOpen, currentPOC, priorVAL, priorVAH, currentLow};
+
 			} 
 			else if (State == State.DataLoaded) 
 			{
+				if (CurrentBars[0] <= BarsRequiredToTrade || CurrentBars[1] <= BarsRequiredToTrade)
+        		return;
+				
 				// Sets the values for the prior day's high, low, and close
 				if (PriorDayOHLC().PriorHigh[1] > 0) {
 				    priorHigh = PriorDayOHLC().PriorHigh[1];
@@ -100,7 +102,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 				//Calculate the VAH and VAL of the prior day
 				priorVAH = CalculateValueArea(false, @"VWTPO", 0.7, 8, 30, 6.75).VAt[1];
 				priorVAL = CalculateValueArea(false, @"VWTPO", 0.7, 8, 30, 6.75).VAb[1];
-				Print("prior value area complete");
 				
 				//Get data for the current open
 				currentOpen = PriorDayOHLC().Open[1];
@@ -109,9 +110,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 		
 		protected override void OnBarUpdate() {
 			
-			
-			
-			if (CurrentBars[0] <= BarsRequiredToPlot || CurrentBars[1] <= BarsRequiredToPlot || CurrentBars[2] <= BarsRequiredToPlot)
+			if (CurrentBars[0] <= BarsRequiredToTrade || CurrentBars[1] <= BarsRequiredToTrade)
         		return;
 			
 			if (BarsInProgress == 0) {
@@ -119,10 +118,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 			   of the support price, we are going to place a limit order at the support price and one tick below    */
 				for (int index = 0; index < allPivots.Length; index++) {
 					if ((GetCurrentBid() - allPivots[index]) <= (10 * TickSize) && Position.MarketPosition == MarketPosition.Flat) {
-						EnterLongLimit(1, allPivots[index] - TickSize, "entry1");
+						EnterLongLimit(1, allPivots[index] - (1 * TickSize), "entry1");
 					}
 					else if ((allPivots[index] - GetCurrentBid()) >= (10 * TickSize) && Position.MarketPosition == MarketPosition.Flat) {
-						EnterShortLimit(1, allPivots[index] + TickSize, "entry1");
+						EnterShortLimit(1, allPivots[index] + (1 * TickSize), "entry1");
 						}
 					}
 			
@@ -234,5 +233,3 @@ namespace NinjaTrader.NinjaScript.Strategies
 	}
 }
 	
-
-
