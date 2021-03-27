@@ -37,7 +37,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private double openPrice;
 		private double currentVAL;
 		private double currentVAH;
-		private double currentPOC;
 		private double priorVAL;
 		private double priorVAH;
 		
@@ -47,7 +46,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private Order targetOrder = null;
 		private int sumFilled = 0;
 		private int barNumberOfOrder = 0;
-		private double[] allPivots;
+		
 		
 		
 		protected override void OnStateChange()
@@ -71,6 +70,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 				RealtimeErrorHandling						= RealtimeErrorHandling.StopCancelClose;
 				StopTargetHandling							= StopTargetHandling.PerEntryExecution;
 				BarsRequiredToTrade							= 20;
+				OffsetFromPivot								= 1;
+				StopLossTicks								= 10;
+				ProfitTargetTicks							= 4;
 				
 				
 				// Disable this property for performance gains in Strategy Analyzer optimizations
@@ -83,14 +85,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 				
 				//Adds data series for daily charts
 				AddDataSeries("ES 06-21", BarsPeriodType.Day, 1);
-				
-				allPivots = new double[] { priorHigh, priorLow, priorClose, currentVAL, currentVAH, currentOpen, currentPOC, priorVAL, priorVAH, currentLow};
 
 			} 
 			else if (State == State.DataLoaded) 
 			{
-				if (CurrentBars[0] <= BarsRequiredToTrade || CurrentBars[1] <= BarsRequiredToTrade)
-        		return;
+				
+   				if (CurrentBar < 20)
+       				return;
 				
 				// Sets the values for the prior day's high, low, and close
 				if (PriorDayOHLC().PriorHigh[1] > 0) {
@@ -108,25 +109,29 @@ namespace NinjaTrader.NinjaScript.Strategies
 			}
 		}
 		
+		
 		protected override void OnBarUpdate() {
 			
-			if (CurrentBars[0] <= BarsRequiredToTrade || CurrentBars[1] <= BarsRequiredToTrade)
+			
+   			 if (CurrentBar < 20)
         		return;
+			
+			double[] allPivots = new double[] { priorHigh, priorLow, priorClose, currentOpen, currentHigh, currentLow, openPrice, currentVAL, currentVAH, priorVAL, priorVAH };
 			
 			if (BarsInProgress == 0) {
 				/* Loop through the supports array and if the current price is within 10 Ticks (2.5 points)
 			   of the support price, we are going to place a limit order at the support price and one tick below    */
 				for (int index = 0; index < allPivots.Length; index++) {
 					if ((GetCurrentBid() - allPivots[index]) <= (10 * TickSize) && Position.MarketPosition == MarketPosition.Flat) {
-						EnterLongLimit(1, allPivots[index] - (1 * TickSize), "entry1");
+						EnterLongLimit(1, allPivots[index] - (OffsetFromPivot * TickSize), "entry1");
 					}
 					else if ((allPivots[index] - GetCurrentBid()) >= (10 * TickSize) && Position.MarketPosition == MarketPosition.Flat) {
-						EnterShortLimit(1, allPivots[index] + (1 * TickSize), "entry1");
+						EnterShortLimit(1, allPivots[index] + (OffsetFromPivot * TickSize), "entry1");
 						}
 					}
 			
 				/*  If we have a long position and the current price is 4 ticks in profit, raise the stop loss order to breakeven  */
-				if (Position.MarketPosition == MarketPosition.Long && Close[0] >= Position.AveragePrice + (4 * TickSize) || Position.MarketPosition == MarketPosition.Short && Close[0] >= Position.AveragePrice - (4 * TickSize) ) {	
+				if (Position.MarketPosition == MarketPosition.Long && Close[0] >= Position.AveragePrice + (8 * TickSize) || Position.MarketPosition == MarketPosition.Short && Close[0] >= Position.AveragePrice - (8 * TickSize) ) {	
 					// Checks to see if our Stop order has been submitted already
 		            if (stopOrder != null && stopOrder.StopPrice < Position.AveragePrice) {
 						// Modifies stop-loss to breakeven
@@ -136,7 +141,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 				
 				currentVAH = CalculateValueArea(false, @"VWTPO", 0.7, 8, 30, 6.75).VAt[0];
 				currentVAL = CalculateValueArea(false, @"VWTPO", 0.7, 8, 30, 6.75).VAb[0];
-				currentPOC = CalculateValueArea(false, @"VWTPO", 0.7, 8, 30, 6.75).POC[0];
 				
 				}
 			
@@ -174,21 +178,20 @@ namespace NinjaTrader.NinjaScript.Strategies
 						
 						/* We sum the quantities of each execution making up the entry order */
 						sumFilled += execution.Quantity;
-						Print("Sum of filled complete");
 						
 						/*Submit stop limit and long exit orders orders for partial fills
 						  These functions handle the entries for all of our long positions */
 						if (Position.MarketPosition == MarketPosition.Long) {
 							if (execution.Order.OrderState == OrderState.PartFilled) {
-								stopOrder = ExitLongStopLimit(execution.Order.Filled, (execution.Order.AverageFillPrice - (4 * TickSize)), "MyStop", "entry1");
-								targetOrder = ExitLongLimit(execution.Order.Filled, execution.Order.AverageFillPrice - (4 * TickSize), "MyTarget", "entry1");
+								stopOrder = ExitLongStopLimit(execution.Order.Filled, (execution.Order.AverageFillPrice - (StopLossTicks * TickSize)), "MyStop", "entry1");
+								targetOrder = ExitLongLimit(execution.Order.Filled, execution.Order.AverageFillPrice - (ProfitTargetTicks * TickSize), "MyTarget", "entry1");
 							}
 							//Update the exit order quantities once understate turns to filled and we have seen execution quantities match order quantities
 							else if (execution.Order.OrderState == OrderState.Filled && sumFilled == execution.Order.Filled) {
 								
 								//Stop Loss Order for OrderState.Filled
-								stopOrder = ExitLongStopLimit(execution.Order.Filled, (execution.Order.AverageFillPrice - (4 * TickSize)), "MyStop", "entry1");
-								targetOrder = ExitLongLimit(execution.Order.Filled, execution.Order.AverageFillPrice - (4 * TickSize), "MyTarget", "entry1");
+								stopOrder = ExitLongStopLimit(execution.Order.Filled, (execution.Order.AverageFillPrice - (StopLossTicks * TickSize)), "MyStop", "entry1");
+								targetOrder = ExitLongLimit(execution.Order.Filled, execution.Order.AverageFillPrice - (ProfitTargetTicks * TickSize), "MyTarget", "entry1");
 							}
 							//Reset the entryOrder object and the sumFilled counter to null / 0 after the order has been filled
 							if (execution.Order.OrderState != OrderState.PartFilled && sumFilled == execution.Order.Filled) {
@@ -201,14 +204,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 						  These functions handle the entries for all of our short positions */
 						if (Position.MarketPosition == MarketPosition.Short) {
 							if (execution.Order.OrderState == OrderState.PartFilled) {
-								stopOrder = ExitLongStopLimit(execution.Order.Filled, (execution.Order.AverageFillPrice + (4 * TickSize)), "MyStop", "entry1");
-								targetOrder = ExitLongLimit(execution.Order.Filled, execution.Order.AverageFillPrice + (4 * TickSize), "MyTarget", "entry1");
+								stopOrder = ExitLongStopLimit(execution.Order.Filled, (execution.Order.AverageFillPrice + (StopLossTicks * TickSize)), "MyStop", "entry1");
+								targetOrder = ExitLongLimit(execution.Order.Filled, execution.Order.AverageFillPrice + (ProfitTargetTicks * TickSize), "MyTarget", "entry1");
 							}
 							//Update the exit order quantities once understate turns to filled and we have seen execution quantities match order quantities
 							else if (execution.Order.OrderState == OrderState.Filled && sumFilled == execution.Order.Filled) {
 								//Stop Loss Order for OrderState.Filled
-								stopOrder = ExitLongStopLimit(execution.Order.Filled, (execution.Order.AverageFillPrice + (4 * TickSize)), "MyStop", "entry1");
-								targetOrder = ExitLongLimit(execution.Order.Filled, execution.Order.AverageFillPrice + (4 * TickSize), "MyTarget", "entry1");
+								stopOrder = ExitLongStopLimit(execution.Order.Filled, (execution.Order.AverageFillPrice + (StopLossTicks * TickSize)), "MyStop", "entry1");
+								targetOrder = ExitLongLimit(execution.Order.Filled, execution.Order.AverageFillPrice + (ProfitTargetTicks * TickSize), "MyTarget", "entry1");
 							}
 							//Reset the entryOrder object and the sumFilled counter to null / 0 after the order has been filled
 							if (execution.Order.OrderState != OrderState.PartFilled && sumFilled == execution.Order.Filled) {
@@ -229,7 +232,25 @@ namespace NinjaTrader.NinjaScript.Strategies
 			}
 		
 	
+		#region Properties
+		[Range(1, int.MaxValue), NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "StopLossTicks", GroupName = "NinjaScriptStrategyParameters", Order = 1)]
+		public int StopLossTicks
+		{ get; set; }
+		
+		[Range(1, int.MaxValue), NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "ProfitTargetTicks", GroupName = "NinjaScriptStrategyParameters", Order = 1)]
+		public int ProfitTargetTicks
+		{ get; set; }
+		
+		[Range(1, int.MaxValue), NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "OffsetFromPivot", GroupName = "NinjaScriptStrategyParameters", Order = 1)]
+		public int OffsetFromPivot
+		{ get; set; }
+		#endregion
 	
 	}
 }
+	
+
 	
